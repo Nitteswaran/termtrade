@@ -16,10 +16,12 @@
   braking included.
 - **3D city** — MapLibre GL + OpenFreeMap vector tiles with extruded buildings; free-fly camera
   (WASD/QE/RF/TG + mouse orbit).
-- **Procedural 3D trains** — livery-matched low-poly models built in three.js (Innovia = Kelana
-  Jaya silver/red, CRRC AMY = Ampang tangerine, Siemens Inspiro = Kajang emerald, SUTRA monorail
-  lime, KTM Class 92 blue/red…), with sliding-door animations while boarding, glowing windows at
-  night, and headlights.
+- **Detailed 3D train model** — the bundled GLB (`web/public/models/train.glb`, meshopt-
+  compressed from 48 MB → 4 MB) rides exactly on the GTFS track geometry with a line-colored
+  glow pad for top-down legibility. Procedural livery models remain as an automatic fallback.
+- **Journey planner** — From/Destination station search with autocomplete; Dijkstra over the
+  GTFS graph (ride times from timetables + walking transfers) returns legs traced along real
+  track shapes, highlighted on the map.
 - **Buttery motion** — the server broadcasts authoritative states at 1 Hz; the client
   dead-reckons at 60 fps along the track spline and eases corrections in, rotating each consist
   to the track bearing (with smoothed cornering).
@@ -28,6 +30,20 @@
 - **After hours** — when the network shuts (~23:30–06:00 MYT) the server replays the timetable
   on a virtual peak-hour clock and the UI shows a *timetable replay* badge, so the city never
   goes dark.
+
+## API keys (optional)
+
+Copy `.env.example` to `.env` in the project root (it is git-ignored):
+
+```bash
+cp .env.example .env
+```
+
+| key | where to get it | what it unlocks |
+|---|---|---|
+| `MAPTILER_KEY` | https://cloud.maptiler.com/account/keys (free tier) | Much more detailed basemap (MapTiler Streets v2, day + dark variants) instead of the default OpenFreeMap style |
+
+No keys are required — without them the app uses the free OpenFreeMap basemap.
 
 ## Run it
 

@@ -1,11 +1,49 @@
-// MapLibre custom layer hosting the three.js scene: all trains, sun/moon
-// lighting, door + window FX. Positions come from TrainWorld each frame.
+// MapLibre custom layer hosting the three.js scene. Renders the user's
+// GLB train model (meshopt-compressed) per active train, with viewport
+// culling, line-colored ground glow, sun-tracked lighting and origin-
+// relative matrices (float32-safe at any zoom).
 import * as THREE from 'three';
 import maplibregl from 'maplibre-gl';
-import { buildTrain, updateTrainFX } from './trainModels.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { buildTrain } from './trainModels.js';
 import { sunPosition, daylightFactor } from '../lib/solar.js';
 
 const DEG = Math.PI / 180;
+const TRAIN_LENGTH_M = 42; // rendered consist length (exaggerated for legibility)
+const RAIL_ALTITUDE_M = 0.4; // sit on the drawn track
+const MAX_VISIBLE = 140;
+
+let modelPromise = null;
+function loadTrainModel() {
+  modelPromise ??= new Promise((resolve) => {
+    const loader = new GLTFLoader();
+    loader.setMeshoptDecoder(MeshoptDecoder);
+    loader.load(
+      '/models/train.glb',
+      (gltf) => {
+        // normalize: forward = +X, base at y=0, length = TRAIN_LENGTH_M
+        const inner = gltf.scene;
+        inner.rotation.y = -Math.PI / 2; // model length runs along Z; nose at -Z
+        const wrap = new THREE.Group();
+        wrap.add(inner);
+        const bbox = new THREE.Box3().setFromObject(wrap);
+        const size = bbox.getSize(new THREE.Vector3());
+        const s = TRAIN_LENGTH_M / Math.max(size.x, 1e-6);
+        wrap.scale.setScalar(s);
+        const b2 = new THREE.Box3().setFromObject(wrap);
+        const c = b2.getCenter(new THREE.Vector3());
+        wrap.position.set(-c.x, -b2.min.y, -c.z);
+        const root = new THREE.Group();
+        root.add(wrap);
+        resolve(root);
+      },
+      undefined,
+      () => resolve(null) // fall back to procedural models
+    );
+  });
+  return modelPromise;
+}
 
 export class TrainsLayer {
   constructor(world, routes) {
@@ -14,52 +52,56 @@ export class TrainsLayer {
     this.renderingMode = '3d';
     this.world = world;
     this.routes = routes;
-    this.meshes = new Map(); // train id -> group
+    this.meshes = new Map();
     this.lastTime = performance.now();
-    this.trainScreenPos = new Map(); // for picking
+    this.trainScreenPos = new Map();
+    this.model = null;
+    loadTrainModel().then((m) => (this.model = m));
   }
 
   onAdd(map, gl) {
     this.map = map;
     this.camera = new THREE.Camera();
     this.scene = new THREE.Scene();
-
     this.sun = new THREE.DirectionalLight(0xffffff, 2.4);
     this.scene.add(this.sun);
     this.hemi = new THREE.HemisphereLight(0xbcd4ff, 0x30281e, 0.9);
     this.scene.add(this.hemi);
-
-    this.renderer = new THREE.WebGLRenderer({
-      canvas: map.getCanvas(),
-      context: gl,
-      antialias: true,
-    });
+    this.renderer = new THREE.WebGLRenderer({ canvas: map.getCanvas(), context: gl, antialias: true });
     this.renderer.autoClear = false;
   }
 
-  kindFor(train) {
-    if (train.id.startsWith('ktmb-')) return 'KTMB';
-    return this.world.shapes[train.shapeId] ? train.routeId : 'KTMB';
+  makeTrain(tr) {
+    const group = new THREE.Group();
+    if (this.model) {
+      group.add(this.model.clone(true));
+    } else {
+      group.add(buildTrain(tr.id.startsWith('ktmb-') ? 'KTMB' : tr.routeId));
+    }
+    // line-colored glow pad under the train — readable from top view
+    const color = new THREE.Color(this.routes[tr.routeId]?.color ?? '#4cc2ff');
+    const pad = new THREE.Mesh(
+      new THREE.PlaneGeometry(TRAIN_LENGTH_M * 1.35, 14),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.38, depthWrite: false })
+    );
+    pad.rotation.x = -Math.PI / 2;
+    pad.position.y = 0.15;
+    group.add(pad);
+    group.matrixAutoUpdate = false;
+    return group;
   }
 
   updateLighting() {
     const { altitude, azimuth } = sunPosition(Date.now());
     const day = daylightFactor(Date.now());
     this.day = day;
-    // sun direction in scene space (x east, y up used pre-transform… lights
-    // operate in mercator-ish space; approximate with azimuth mapping)
     const r = 500;
-    const alt = Math.max(0.45, altitude); // keep a flattering key-light angle even at night
-    this.sun.position.set(
-      r * Math.sin(azimuth) * Math.cos(alt),
-      -r * Math.cos(azimuth) * Math.cos(alt),
-      r * Math.sin(alt)
-    );
-    const warm = new THREE.Color(0xfff3e0), night = new THREE.Color(0x8fa8d8);
+    const alt = Math.max(0.5, altitude);
+    this.sun.position.set(r * Math.sin(azimuth) * Math.cos(alt), -r * Math.cos(azimuth) * Math.cos(alt), r * Math.sin(alt));
+    const warm = new THREE.Color(0xfff3e0), night = new THREE.Color(0xaebfe4);
     this.sun.color.copy(night).lerp(warm, day);
-    this.sun.intensity = 1.1 + 1.6 * day;
-    this.hemi.intensity = 0.8 + 0.5 * day;
-    this.nightEmissive = (1 - day) * 1.15;
+    this.sun.intensity = 2.1 + 0.8 * day;
+    this.hemi.intensity = 1.15 + 0.25 * day;
   }
 
   render(gl, matrix) {
@@ -70,38 +112,49 @@ export class TrainsLayer {
     this.updateLighting();
     const trains = this.world.tick(dt);
     const seen = new Set();
-    const center = this.map.getCenter();
-    // zoom-adaptive exaggeration keeps trains legible from city scale
     const zoom = this.map.getZoom();
-    const exaggerate = zoom >= 16 ? 1 : Math.min(3.2, 1 + (16 - zoom) * 0.55);
-    const ref = maplibregl.MercatorCoordinate.fromLngLat(center, 0);
+    // exaggerate size so trains stay legible from city scale & top view
+    const exaggerate = Math.min(5, Math.max(1.35, 1.35 + (16.5 - zoom) * 0.55));
+    const ref = maplibregl.MercatorCoordinate.fromLngLat(this.map.getCenter(), 0);
     const scaleRef = ref.meterInMercatorCoordinateUnits() * exaggerate;
     this.trainScreenPos.clear();
 
+    // viewport culling with padding
+    const bounds = this.map.getBounds();
+    const padLon = (bounds.getEast() - bounds.getWest()) * 0.25;
+    const padLat = (bounds.getNorth() - bounds.getSouth()) * 0.25;
+    const inView = (tr) =>
+      tr.lon > bounds.getWest() - padLon && tr.lon < bounds.getEast() + padLon &&
+      tr.lat > bounds.getSouth() - padLat && tr.lat < bounds.getNorth() + padLat;
+
+    let visible = 0;
     for (const tr of trains) {
       if (tr.lon == null) continue;
+      this.trainScreenPos.set(tr.id, tr);
+      if (!inView(tr) || visible >= MAX_VISIBLE) {
+        const g = this.meshes.get(tr.id);
+        if (g) g.visible = false;
+        seen.add(tr.id);
+        continue;
+      }
+      visible++;
       seen.add(tr.id);
       let g = this.meshes.get(tr.id);
       if (!g) {
-        g = buildTrain(this.kindFor(tr));
-        g.matrixAutoUpdate = false;
+        g = this.makeTrain(tr);
         this.scene.add(g);
         this.meshes.set(tr.id, g);
       }
-      const merc = maplibregl.MercatorCoordinate.fromLngLat([tr.lon, tr.lat], g.userData.altitude || 0);
+      g.visible = true;
+      const merc = maplibregl.MercatorCoordinate.fromLngLat([tr.lon, tr.lat], RAIL_ALTITUDE_M);
       const theta = Math.PI / 2 - (tr.bearing || 0) * DEG;
-      // positions are relative to `ref` so float32 precision survives close zooms
-      const m = new THREE.Matrix4()
+      g.matrix
         .makeTranslation(merc.x - ref.x, merc.y - ref.y, merc.z)
         .scale(new THREE.Vector3(scaleRef, -scaleRef, scaleRef))
         .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))
         .multiply(new THREE.Matrix4().makeRotationY(theta));
-      g.matrix.copy(m);
-      updateTrainFX(g, tr.doorAnim ?? 0, this.nightEmissive);
-      this.trainScreenPos.set(tr.id, tr);
     }
 
-    // remove departed trains
     for (const [id, g] of this.meshes) {
       if (!seen.has(id)) {
         this.scene.remove(g);
@@ -113,13 +166,12 @@ export class TrainsLayer {
       .fromArray(matrix)
       .multiply(new THREE.Matrix4().makeTranslation(ref.x, ref.y, 0));
     this.renderer.resetState();
-    // trains are the heroes: clear depth so buildings never swallow them
+    // trains are the heroes: never let buildings swallow them
     this.renderer.clearDepth();
     this.renderer.render(this.scene, this.camera);
     this.map.triggerRepaint();
   }
 
-  // nearest train to a screen point (pixel-space picking)
   pick(point, maxPx = 45) {
     let best = null, bestD = maxPx * maxPx;
     for (const tr of this.trainScreenPos.values()) {

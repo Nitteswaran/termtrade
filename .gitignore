@@ -3,3 +3,7 @@ web/dist/
 *.log
 .DS_Store
 __MACOSX/
+.env
+.env.local
+.env.*.local
+3d_train_model.rar

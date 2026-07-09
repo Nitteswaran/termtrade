@@ -6,7 +6,10 @@ import { WebSocketServer } from 'ws';
 import { loadGTFS } from './lib/gtfs.js';
 import { activeTrains, klClock } from './lib/sim.js';
 import { KtmbFeed } from './lib/ktmb.js';
+import { loadEnv } from './lib/env.js';
+import { buildGraph, findRoute } from './lib/router.js';
 
+loadEnv();
 const PORT = process.env.PORT || 8787;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -28,6 +31,18 @@ const network = {
   ),
 };
 app.get('/api/network', (_req, res) => res.json(network));
+
+app.get('/api/config', (_req, res) =>
+  res.json({ maptilerKey: process.env.MAPTILER_KEY || null })
+);
+
+const graph = buildGraph(gtfs);
+app.get('/api/route', (req, res) => {
+  const { from, to } = req.query;
+  const route = findRoute(gtfs, graph, from, to);
+  if (!route) return res.status(404).json({ error: 'no route found' });
+  res.json(route);
+});
 app.get('/api/health', (_req, res) =>
   res.json({ ok: true, ktmb: { vehicles: ktmb.vehicles.length, lastFetch: ktmb.lastFetch, error: ktmb.error } })
 );
