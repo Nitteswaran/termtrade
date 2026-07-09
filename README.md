@@ -16,9 +16,9 @@
   braking included.
 - **3D city** — MapLibre GL + OpenFreeMap vector tiles with extruded buildings; free-fly camera
   (WASD/QE/RF/TG + mouse orbit).
-- **Detailed 3D train model** — the bundled GLB (`web/public/models/train.glb`, meshopt-
-  compressed from 48 MB → 4 MB) rides exactly on the GTFS track geometry with a line-colored
-  glow pad for top-down legibility. Procedural livery models remain as an automatic fallback.
+- **Metro EMU 3D models** — extruded rounded-profile consists per line (PBR steel + flush
+  glazing with PMREM environment reflections, line liveries, door animation, glowing windows
+  at night), riding exactly on the GTFS track geometry with line-colored glow pads.
 - **Journey planner** — From/Destination station search with autocomplete; Dijkstra over the
   GTFS graph (ride times from timetables + walking transfers) returns legs traced along real
   track shapes, highlighted on the map.
@@ -42,6 +42,7 @@ cp .env.example .env
 | key | where to get it | what it unlocks |
 |---|---|---|
 | `MAPTILER_KEY` | https://cloud.maptiler.com/account/keys (free tier) | Much more detailed basemap (MapTiler Streets v2, day + dark variants) instead of the default OpenFreeMap style |
+| `GOOGLE_MAPS_API_KEY` | https://console.cloud.google.com/google/maps-apis — enable **Map Tiles API** (billing required) | Google **Photorealistic 3D Tiles**: real photogrammetry buildings rendered under the trains via deck.gl |
 
 No keys are required — without them the app uses the free OpenFreeMap basemap.
 
@@ -94,10 +95,11 @@ web/               Vite + React 18
 
 ### Swapping in marketplace 3D models
 
-The procedural consists live in `web/src/three/trainModels.js`. To use a purchased/free GLB
+The consists live in `web/src/three/trainModels.js`. To use a purchased/free GLB
 (Sketchfab, CGTrader, TurboSquid, BlenderKit — search "KLAV Innovia", "Siemens Inspiro",
 "KTM Class 92"), load it with `GLTFLoader`, orient it forward = +X / up = +Y, and return it from
-`buildTrain(kind)` — everything else (positioning, rotation, doors hook, lighting) keeps working.
+`buildTrain(kind)` — positioning, rotation, doors hook and lighting keep working. Note: pick a
+**metro/EMU** model that matches KL rolling stock, and keep it under ~5 MB (meshopt/Draco).
 
 ## Refreshing GTFS data
 

@@ -1,187 +1,185 @@
-// Procedural low-poly train models, livery-matched to real Malaysian
-// rolling stock. Built in a frame where forward = +X, up = +Y, origin at
-// rail level under the consist centre. Every mesh is cheap (boxes +
-// tapered noses) so 200+ trains render at 60 fps; swap any of these for a
-// GLB from Sketchfab/CGTrader later via userData.slots.
+// Procedural metro EMU consists, livery-matched to KL rolling stock.
+// Car bodies are extruded rounded profiles (not boxes) with PBR steel +
+// flush glazing; the scene provides a PMREM environment so the metal and
+// glass pick up real reflections. Forward = +X, up = +Y, origin at rail.
 import * as THREE from 'three';
 
-// One shared geometry cache
-const geo = {
-  box: new THREE.BoxGeometry(1, 1, 1),
+export const LIVERIES = {
+  KJ:   { body: 0xdadde1, accent: 0xd50032, cars: 4, carLen: 17, width: 2.7, height: 3.35 },
+  AG:   { body: 0xe9e7e2, accent: 0xe57200, cars: 4, carLen: 19, width: 2.8, height: 3.5 },
+  PH:   { body: 0xe9e7e2, accent: 0x8c2332, cars: 4, carLen: 19, width: 2.8, height: 3.5 },
+  KGL:  { body: 0xd4d8dc, accent: 0x047940, cars: 4, carLen: 21, width: 3.1, height: 3.65 },
+  PYL:  { body: 0xd4d8dc, accent: 0xffcd00, cars: 4, carLen: 21, width: 3.1, height: 3.65 },
+  MR:   { body: 0xbcd96a, accent: 0x3e6d1c, cars: 2, carLen: 13, width: 2.6, height: 3.15, monorail: true },
+  BRT:  { body: 0xe6e9ea, accent: 0x115740, cars: 1, carLen: 12, width: 2.5, height: 3.1 },
+  SA:   { body: 0xe6e6ea, accent: 0xd6006e, cars: 3, carLen: 19, width: 2.8, height: 3.5 },
+  KTMB: { body: 0xf1efec, accent: 0x1c3f94, accent2: 0xdc2420, cars: 6, carLen: 21, width: 3.0, height: 3.85 },
 };
 
-function mat(color, opts = {}) {
-  return new THREE.MeshStandardMaterial({ color, metalness: 0.15, roughness: 0.5, ...opts });
+// ---- shared geometry/material caches (per livery) ----
+const partsCache = new Map();
+
+function roundedProfile(W, H) {
+  // cross-section: x = width, y = height above rail deck
+  const s = new THREE.Shape();
+  const rB = 0.16, rT = Math.min(0.75, W * 0.3);
+  const w = W / 2;
+  s.moveTo(-w + rB, 0);
+  s.lineTo(w - rB, 0);
+  s.quadraticCurveTo(w, 0, w, rB);
+  s.lineTo(w, H - rT);
+  s.quadraticCurveTo(w, H, w - rT, H);
+  s.lineTo(-w + rT, H);
+  s.quadraticCurveTo(-w, H, -w, H - rT);
+  s.lineTo(-w, rB);
+  s.quadraticCurveTo(-w, 0, -w + rB, 0);
+  return s;
 }
 
-// Box with the +X end tapered in (cab nose).
-function taperedNose(len, w, h, taper = 0.45) {
-  const g = new THREE.BoxGeometry(len, h, w, 1, 1, 1);
-  const pos = g.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    if (pos.getX(i) > 0) {
-      pos.setY(i, pos.getY(i) * (1 - taper * 0.55) - h * taper * 0.1);
-      pos.setZ(i, pos.getZ(i) * (1 - taper));
-    }
-  }
-  g.computeVertexNormals();
+function bodyGeometry(len, W, H) {
+  const g = new THREE.ExtrudeGeometry(roundedProfile(W, H), {
+    depth: len - 0.9,
+    bevelEnabled: true,
+    bevelThickness: 0.42,
+    bevelSize: 0.3,
+    bevelSegments: 3,
+    curveSegments: 8,
+  });
+  g.translate(0, 0, -(len - 0.9) / 2);
+  g.rotateY(Math.PI / 2); // extrusion (Z) -> train axis (X)
   return g;
 }
 
-export const LIVERIES = {
-  // LRT Kelana Jaya — Bombardier Innovia: brushed steel, red mask & doors
-  KJ: { body: 0xd8dadd, accent: 0xd50032, windows: 0x14171c, doors: 0xd50032, cars: 4, carLen: 16.5, width: 2.7, height: 3.3, altitude: 13, },
-  // LRT Ampang — CRRC AMY: white, tangerine stripe
-  AG: { body: 0xe8e6e1, accent: 0xe57200, windows: 0x14171c, doors: 0x3a3d42, cars: 4, carLen: 19, width: 2.8, height: 3.5, altitude: 13, },
-  // LRT Sri Petaling — CRRC AMY: white, maroon stripe
-  PH: { body: 0xe8e6e1, accent: 0x76232f, windows: 0x14171c, doors: 0x3a3d42, cars: 4, carLen: 19, width: 2.8, height: 3.5, altitude: 13, },
-  // MRT Kajang — Siemens Inspiro: silver, emerald band
-  KGL: { body: 0xc9cdd2, accent: 0x047940, windows: 0x101418, doors: 0x047940, cars: 4, carLen: 22, width: 3.1, height: 3.7, altitude: 15, },
-  // MRT Putrajaya — Innovia Metro 300: silver, gold band
-  PYL: { body: 0xc9cdd2, accent: 0xffcd00, windows: 0x101418, doors: 0x2e3238, cars: 4, carLen: 22, width: 3.1, height: 3.7, altitude: 15, },
-  // KL Monorail — Scomi SUTRA: lime green, compact
-  MR: { body: 0x9dc94c, accent: 0x2e5410, windows: 0x0f1410, doors: 0x2e5410, cars: 2, carLen: 12, width: 2.6, height: 3.2, monorail: true, altitude: 9, },
-  // BRT Sunway — electric bus
-  BRT: { body: 0xdfe3e6, accent: 0x115740, windows: 0x14171c, doors: 0x115740, cars: 1, carLen: 12, width: 2.5, height: 3.1, altitude: 6, },
-  // LRT Shah Alam — new CRRC sets, magenta identity
-  SA: { body: 0xe4e4e8, accent: 0xd6006e, windows: 0x14171c, doors: 0xd6006e, cars: 3, carLen: 19, width: 2.8, height: 3.5, altitude: 13, },
-  // KTM Komuter Class 92 — white, red/blue swoosh
-  KTMB: { body: 0xf2f1ee, accent: 0x1c3f94, accent2: 0xdc2420, windows: 0x14171c, doors: 0x1c3f94, cars: 5, carLen: 21, width: 3.0, height: 3.9, altitude: 0.5, },
-};
+function getParts(kind) {
+  if (partsCache.has(kind)) return partsCache.get(kind);
+  const L = LIVERIES[kind] || LIVERIES.KJ;
+
+  const mats = {
+    body: new THREE.MeshStandardMaterial({ color: L.body, metalness: 0.85, roughness: 0.32, envMapIntensity: 1.1 }),
+    accent: new THREE.MeshStandardMaterial({ color: L.accent, metalness: 0.65, roughness: 0.35, envMapIntensity: 1.0 }),
+    accent2: new THREE.MeshStandardMaterial({ color: L.accent2 ?? L.accent, metalness: 0.65, roughness: 0.35 }),
+    glass: new THREE.MeshStandardMaterial({
+      color: 0x0b0e13, metalness: 0.0, roughness: 0.06, envMapIntensity: 1.6,
+      emissive: 0xffd9a0, emissiveIntensity: 0,
+    }),
+    dark: new THREE.MeshStandardMaterial({ color: 0x15181d, metalness: 0.4, roughness: 0.7 }),
+    light: new THREE.MeshStandardMaterial({ color: 0xfff7df, emissive: 0xffedb8, emissiveIntensity: 2.2 }),
+  };
+  const railY = L.monorail ? 1.0 : 0.62;
+  const geos = {
+    body: bodyGeometry(L.carLen, L.width, L.height - 0.45),
+    glass: new THREE.BoxGeometry(L.carLen * 0.86, (L.height - 0.45) * 0.3, L.width + 0.06),
+    stripe: new THREE.BoxGeometry(L.carLen * 0.96, 0.26, L.width + 0.08),
+    stripe2: new THREE.BoxGeometry(L.carLen * 0.96, 0.16, L.width + 0.08),
+    door: new THREE.BoxGeometry(1.35, (L.height - 0.45) * 0.66, L.width + 0.05),
+    roofUnit: new THREE.BoxGeometry(L.carLen * 0.34, 0.22, L.width * 0.5),
+    bogie: new THREE.BoxGeometry(2.3, railY, L.width * 0.72),
+    beam: new THREE.BoxGeometry(L.carLen * 0.82, railY, 0.85),
+    gangway: new THREE.BoxGeometry(1.1, (L.height - 0.45) * 0.75, L.width * 0.74),
+    shield: new THREE.BoxGeometry(0.55, (L.height - 0.45) * 0.44, L.width * 0.8),
+    mask: new THREE.BoxGeometry(0.5, (L.height - 0.45) * 0.32, L.width * 0.86),
+    lamp: new THREE.SphereGeometry(0.14, 10, 8),
+  };
+  const out = { L, mats, geos, railY };
+  partsCache.set(kind, out);
+  return out;
+}
 
 export function buildTrain(kind) {
-  const L = LIVERIES[kind] || LIVERIES.KJ;
+  const { L, mats, geos, railY } = getParts(kind);
   const group = new THREE.Group();
   const doors = [];
   const windows = [];
-  const gap = 0.55;
+  const gap = 0.7;
   const total = L.cars * L.carLen + (L.cars - 1) * gap;
   let x0 = -total / 2;
+  const bodyH = L.height - 0.45;
 
-  const bodyMat = mat(L.body);
-  const accentMat = mat(L.accent, { metalness: 0.2, roughness: 0.5 });
-  const accent2Mat = L.accent2 ? mat(L.accent2, { metalness: 0.2, roughness: 0.5 }) : accentMat;
-  const winMat = new THREE.MeshStandardMaterial({
-    color: L.windows, metalness: 0.1, roughness: 0.2,
-    emissive: 0xffd9a0, emissiveIntensity: 0,
-  });
-  const doorMat = mat(L.doors, { metalness: 0.2, roughness: 0.55 });
-  const darkMat = mat(0x1a1d22, { metalness: 0.1, roughness: 0.85 });
-
-  const railY = L.monorail ? 0.9 : 0.55; // monorail straddles its beam
   for (let c = 0; c < L.cars; c++) {
     const cx = x0 + L.carLen / 2;
     const isHead = c === 0, isTail = c === L.cars - 1;
     const car = new THREE.Group();
-    car.position.set(cx, 0, 0);
+    car.position.x = cx;
 
-    const bodyH = L.height - 0.5;
-    const bodyLen = L.carLen - (isHead || isTail ? 3.2 : 0);
-    const bodyOffset = isHead ? -1.6 : isTail ? 1.6 : 0;
-
-    const body = new THREE.Mesh(geo.box, bodyMat);
-    body.scale.set(bodyLen, bodyH, L.width);
-    body.position.set(bodyOffset, railY + bodyH / 2, 0);
+    const body = new THREE.Mesh(geos.body, mats.body);
+    body.position.y = railY;
     car.add(body);
 
-    // cab noses
-    if (isHead || isTail) {
-      const nose = new THREE.Mesh(taperedNose(3.4, L.width, bodyH), bodyMat);
-      nose.position.set(isHead ? bodyOffset + bodyLen / 2 + 1.55 : bodyOffset - bodyLen / 2 - 1.55, railY + bodyH / 2, 0);
-      if (isTail) nose.rotation.y = Math.PI;
-      car.add(nose);
-      // windshield
-      const shield = new THREE.Mesh(geo.box, winMat);
-      shield.scale.set(0.9, bodyH * 0.42, L.width * 0.78);
-      shield.position.set(isHead ? bodyOffset + bodyLen / 2 + 1.2 : bodyOffset - bodyLen / 2 - 1.2, railY + bodyH * 0.68, 0);
-      shield.rotation.z = isHead ? -0.25 : 0.25;
-      car.add(shield);
-      windows.push(shield);
+    const glass = new THREE.Mesh(geos.glass, mats.glass);
+    glass.position.y = railY + bodyH * 0.64;
+    car.add(glass);
+    windows.push(glass);
+
+    const stripe = new THREE.Mesh(geos.stripe, mats.accent);
+    stripe.position.y = railY + bodyH * 0.4;
+    car.add(stripe);
+    if (L.accent2) {
+      const s2 = new THREE.Mesh(geos.stripe2, mats.accent2);
+      s2.position.y = railY + bodyH * 0.28;
+      car.add(s2);
     }
 
-    // window band (both sides)
-    for (const side of [-1, 1]) {
-      const band = new THREE.Mesh(geo.box, winMat);
-      band.scale.set(bodyLen * 0.92, bodyH * 0.34, 0.06);
-      band.position.set(bodyOffset, railY + bodyH * 0.66, side * (L.width / 2 + 0.01));
-      car.add(band);
-      windows.push(band);
-
-      // accent stripe under windows
-      const stripe = new THREE.Mesh(geo.box, accentMat);
-      stripe.scale.set(bodyLen * 0.98, 0.28, 0.05);
-      stripe.position.set(bodyOffset, railY + bodyH * 0.42, side * (L.width / 2 + 0.02));
-      car.add(stripe);
-      if (L.accent2) {
-        const stripe2 = new THREE.Mesh(geo.box, accent2Mat);
-        stripe2.scale.set(bodyLen * 0.98, 0.18, 0.05);
-        stripe2.position.set(bodyOffset, railY + bodyH * 0.3, side * (L.width / 2 + 0.02));
-        car.add(stripe2);
-      }
-
-      // two sliding doors per side per car
-      for (const dx of [-bodyLen * 0.28, bodyLen * 0.28]) {
-        const door = new THREE.Mesh(geo.box, doorMat);
-        door.scale.set(1.4, bodyH * 0.72, 0.08);
-        door.position.set(bodyOffset + dx, railY + bodyH * 0.4, side * (L.width / 2 + 0.03));
-        car.add(door);
-        doors.push({ mesh: door, baseX: bodyOffset + dx, slide: 1.15 });
-      }
+    for (const dx of [-L.carLen * 0.27, L.carLen * 0.27]) {
+      const door = new THREE.Mesh(geos.door, mats.dark);
+      door.position.set(dx, railY + bodyH * 0.38, 0);
+      car.add(door);
+      doors.push({ mesh: door, baseX: dx, slide: 1.1 });
     }
 
-    // roof unit
-    const roof = new THREE.Mesh(geo.box, darkMat);
-    roof.scale.set(bodyLen * 0.5, 0.22, L.width * 0.55);
-    roof.position.set(bodyOffset, railY + bodyH + 0.11, 0);
+    const roof = new THREE.Mesh(geos.roofUnit, mats.dark);
+    roof.position.y = railY + bodyH + 0.1;
     car.add(roof);
 
-    // bogies / underframe
     if (L.monorail) {
-      const beamGrip = new THREE.Mesh(geo.box, darkMat);
-      beamGrip.scale.set(bodyLen * 0.8, railY, 0.8);
-      beamGrip.position.set(bodyOffset, railY / 2, 0);
-      car.add(beamGrip);
+      const beam = new THREE.Mesh(geos.beam, mats.dark);
+      beam.position.y = railY / 2;
+      car.add(beam);
     } else {
-      for (const bx of [-bodyLen * 0.32, bodyLen * 0.32]) {
-        const bogie = new THREE.Mesh(geo.box, darkMat);
-        bogie.scale.set(2.4, railY, L.width * 0.7);
-        bogie.position.set(bodyOffset + bx, railY / 2, 0);
+      for (const bx of [-L.carLen * 0.3, L.carLen * 0.3]) {
+        const bogie = new THREE.Mesh(geos.bogie, mats.dark);
+        bogie.position.set(bx, railY / 2, 0);
         car.add(bogie);
       }
     }
 
-    // gangway to next car
     if (c < L.cars - 1) {
-      const gang = new THREE.Mesh(geo.box, darkMat);
-      gang.scale.set(gap + 0.3, bodyH * 0.8, L.width * 0.8);
-      gang.position.set(x0 + L.carLen + gap / 2, railY + bodyH * 0.45, 0);
-      car.add(gang);
+      const gw = new THREE.Mesh(geos.gangway, mats.dark);
+      gw.position.set(L.carLen / 2 + gap / 2, railY + bodyH * 0.45, 0);
+      car.add(gw);
+    }
+
+    // cab face on end cars: swept windshield + line-colored mask + lamps
+    if (isHead || isTail) {
+      const dir = isHead ? 1 : -1;
+      const fx = dir * (L.carLen / 2 - 0.12);
+      const shield = new THREE.Mesh(geos.shield, mats.glass);
+      shield.position.set(fx, railY + bodyH * 0.66, 0);
+      shield.rotation.z = -dir * 0.32;
+      car.add(shield);
+      windows.push(shield);
+      const mask = new THREE.Mesh(geos.mask, mats.accent);
+      mask.position.set(fx + dir * 0.03, railY + bodyH * 0.34, 0);
+      mask.rotation.z = -dir * 0.18;
+      car.add(mask);
+      for (const side of [-1, 1]) {
+        const lamp = new THREE.Mesh(geos.lamp, mats.light);
+        lamp.position.set(fx + dir * 0.12, railY + bodyH * 0.24, side * L.width * 0.3);
+        car.add(lamp);
+      }
     }
 
     group.add(car);
     x0 += L.carLen + gap;
   }
 
-  // headlight glow sprite on lead cab
-  const head = new THREE.Mesh(
-    geo.box,
-    new THREE.MeshStandardMaterial({ color: 0xfff6e0, emissive: 0xfff2c8, emissiveIntensity: 1.4 })
-  );
-  head.scale.set(0.15, 0.18, L.width * 0.5);
-  head.position.set(total / 2 - 0.05, railY + 0.7, 0);
-  group.add(head);
-
-  group.userData = { doors, windows, kind, length: total, altitude: L.altitude ?? 0 };
+  group.userData = { doors, windows, kind, length: total, glassMat: mats.glass };
   return group;
 }
 
-// Animate: doorAnim 0..1, nightFactor 0..1
+// doorAnim 0..1 (sliding), nightEmissive lights the glazing after dark
 export function updateTrainFX(group, doorAnim, nightEmissive) {
   for (const d of group.userData.doors) {
-    d.mesh.position.x = d.baseX + d.slide * doorAnim;
-    d.mesh.scale.x = 1.4 * (1 - 0.85 * doorAnim);
+    d.mesh.position.x = d.baseX + d.slide * doorAnim * Math.sign(d.baseX || 1);
   }
-  for (const w of group.userData.windows) {
-    w.material.emissiveIntensity = nightEmissive;
-  }
+  group.userData.glassMat.emissiveIntensity = nightEmissive;
 }

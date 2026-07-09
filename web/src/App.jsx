@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import gsap from 'gsap';
-import { createMap, addBuildings, addNetwork, applyNight, isNight, attachFlyCam, showJourney, clearJourney } from './map/initMap.js';
+import { createMap, addBuildings, addNetwork, applyNight, isNight, attachFlyCam, showJourney, clearJourney, declutter, enableGoogle3DTiles } from './map/initMap.js';
 import { fetchNetwork, connectWS } from './lib/net.js';
 import { prepareShape } from './lib/geo.js';
 import { TrainWorld } from './lib/interp.js';
@@ -46,6 +46,8 @@ export default function App() {
         addNetwork(map, network);
         if (!config.maptilerKey) applyNight(map, n);
         map.addLayer(layer);
+        declutter(map);
+        if (config.googleMapsKey) enableGoogle3DTiles(map, config.googleMapsKey);
         setNight(n);
       });
       map.on('click', (e) => {
@@ -144,7 +146,7 @@ export default function App() {
         </div>
         <div className="tt-top-right">
           {demo && <span className="tt-badge demo">timetable replay · after hours</span>}
-          <span className={`tt-badge status ${status}`}><i />{status === 'live' ? 'LIVE' : status.toUpperCase()}</span>
+          <span className={`tt-badge status ${status === "live" ? "live" : status}`}><i />{status === 'live' ? 'LIVE' : status.toUpperCase()}</span>
           <span className="tt-clock">{clock}<small>MYT · {night ? 'night' : 'day'}</small></span>
         </div>
       </header>

@@ -33,7 +33,10 @@ const network = {
 app.get('/api/network', (_req, res) => res.json(network));
 
 app.get('/api/config', (_req, res) =>
-  res.json({ maptilerKey: process.env.MAPTILER_KEY || null })
+  res.json({
+    maptilerKey: process.env.MAPTILER_KEY || null,
+    googleMapsKey: process.env.GOOGLE_MAPS_API_KEY || null,
+  })
 );
 
 const graph = buildGraph(gtfs);
