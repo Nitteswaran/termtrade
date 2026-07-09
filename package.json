@@ -1,0 +1,15 @@
+{
+  "name": "termtrade",
+  "private": true,
+  "version": "0.1.0",
+  "description": "TERMTRADE — real-time 3D visualization of Malaysian transit (LRT, MRT, Monorail, KTM) with live GTFS data",
+  "scripts": {
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run build -w web",
+    "start": "npm start -w server"
+  },
+  "workspaces": ["server", "web"],
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

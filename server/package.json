@@ -1,0 +1,14 @@
+{
+  "name": "server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node index.js",
+    "start": "NODE_ENV=production node index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "gtfs-realtime-bindings": "^1.1.1",
+    "ws": "^8.18.0"
+  }
+}
