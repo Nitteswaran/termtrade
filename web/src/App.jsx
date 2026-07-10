@@ -143,7 +143,18 @@ export default function App() {
 
       <header className="tt-top">
         <div className="tt-brand">
-          <span className="tt-logo-mark" />
+          <svg className="tt-logo-mark" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+            <defs>
+              <linearGradient id="ttlg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stopColor="#252c38" />
+                <stop offset="1" stopColor="#0b0e14" />
+              </linearGradient>
+            </defs>
+            <rect x="0.5" y="0.5" width="23" height="23" rx="7" fill="url(#ttlg)" stroke="rgba(255,255,255,0.16)" />
+            <path d="M6.2 17.8 L13 7" stroke="#4b5563" strokeWidth="1.7" strokeLinecap="round" />
+            <path d="M10.4 17.8 L17.2 7" stroke="#8a94a6" strokeWidth="1.7" strokeLinecap="round" />
+            <circle cx="16.9" cy="16.4" r="2.2" fill="#3f9cff" />
+          </svg>
           <h1>TERM<span>TRADE</span></h1>
           <em>Malaysia Transit · Live 3D</em>
         </div>

@@ -42,10 +42,8 @@ button, input { font-family: inherit; }
   padding: 10px 18px 10px 14px; backdrop-filter: blur(20px); box-shadow: var(--shadow);
 }
 .tt-logo-mark {
-  width: 22px; height: 22px; border-radius: 7px;
-  background: conic-gradient(from 210deg, #3f9cff, #d50032 45%, #ffcd00 70%, #047940 85%, #3f9cff);
-  mask: radial-gradient(circle at center, transparent 34%, #000 36%);
-  -webkit-mask: radial-gradient(circle at center, transparent 34%, #000 36%);
+  width: 24px; height: 24px; flex: none;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
 }
 .tt-brand h1 { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
 .tt-brand h1 span { color: var(--blue); }
