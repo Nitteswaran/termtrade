@@ -1,8 +1,10 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import NumberFlow from '@number-flow/react';
 import gsap from 'gsap';
+import Splash from './components/Splash.jsx';
 import {
-  Route, TramFront, Layers, SunMoon, Info, Eye, EyeOff, X, ArrowUpDown,
-  LocateFixed, Sun, Moon, Clock3, Gauge, DoorOpen, MapPin, Keyboard,
+  Route, TramFront, Layers, Info, Eye, EyeOff, X, ArrowUpDown,
+  LocateFixed, Gauge, DoorOpen, MapPin, Keyboard,
 } from 'lucide-react';
 import {
   createMap, addBuildings, addNetwork, applyNight, isNight, attachFlyCam,
@@ -10,7 +12,7 @@ import {
 } from './map/initMap.js';
 import { fetchNetwork, connectWS } from './lib/net.js';
 import { prepareShape } from './lib/geo.js';
-import { setLightMode, getLightMode } from './lib/solar.js';
+
 import { TrainWorld } from './lib/interp.js';
 import { TrainsLayer } from './three/TrainsLayer.js';
 
@@ -22,7 +24,6 @@ const RAIL_ITEMS = [
   { id: 'journey', icon: Route, label: 'Journey' },
   { id: 'lines', icon: TramFront, label: 'Lines' },
   { id: 'layers', icon: Layers, label: 'Layers' },
-  { id: 'display', icon: SunMoon, label: 'Display' },
   { id: 'info', icon: Info, label: 'About' },
 ];
 
@@ -43,8 +44,9 @@ export default function App() {
   const [journey, setJourney] = useState(null);
   const [panel, setPanel] = useState('journey');
   const [prefs, setPrefs] = useState({ photoreal: true, buildings: true, routes: true, stations: true });
-  const [lightMode, setLightModeState] = useState(getLightMode());
+
   const [hasPhotoreal, setHasPhotoreal] = useState(false);
+  const [splashDone, setSplashDone] = useState(false);
 
   useEffect(() => {
     let dispose = [];
@@ -131,13 +133,14 @@ export default function App() {
     return () => clearInterval(iv);
   }, [selected?.id]);
 
+  // entrance choreography — runs as the splash fades out
   useEffect(() => {
-    if (!routes || !uiRef.current) return;
+    if (!routes || !splashDone || !uiRef.current) return;
     const q = gsap.utils.selector(uiRef);
     gsap.fromTo(q('.tt-rail'), { x: -70, opacity: 0 }, { x: 0, opacity: 1, duration: 0.7, ease: 'power3.out' });
     gsap.fromTo(q('.tt-topbar'), { y: -40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.7, delay: 0.15, ease: 'power3.out' });
     gsap.fromTo(q('.tt-drawer'), { x: -24, opacity: 0 }, { x: 0, opacity: 1, duration: 0.55, delay: 0.3, ease: 'power2.out' });
-  }, [routes]);
+  }, [routes, splashDone]);
 
   const cardRef = useRef(null);
   useEffect(() => {
@@ -148,7 +151,7 @@ export default function App() {
   const lines = useMemo(() => {
     if (!routes) return [];
     const arr = LINE_ORDER.filter((id) => routes[id]).map((id) => routes[id]);
-    arr.push({ id: 'KTMB', shortName: 'KTM', name: 'KTM Komuter / ETS — live GPS', color: '#5c6676' });
+    arr.push({ id: 'KTMB', shortName: 'KTM', name: 'KTM Komuter / ETS — live GPS', color: '#1c3f94' });
     return arr;
   }, [routes]);
 
@@ -164,26 +167,12 @@ export default function App() {
     if (stateRef.current.map) clearJourney(stateRef.current.map);
   }
 
-  function changeLightMode(mode) {
-    setLightMode(mode);
-    setLightModeState(mode);
-    const n = isNight();
-    setNight(n);
-    const { map, config } = stateRef.current;
-    if (!map) return;
-    if (config.maptilerKey) {
-      setJourney(null);
-      map.setStyle(styleUrl(config, n)); // style.load handler rebuilds layers
-    } else {
-      applyNight(map, n);
-    }
-  }
-
   const selRoute = selected && routes ? routes[selected.routeId] : null;
   const selStop = selected && stops ? stops[selected.nextStop] : null;
 
   return (
     <div className="tt-root" ref={uiRef}>
+      <Splash ready={!!routes} onDone={() => setSplashDone(true)} />
       <div ref={mapEl} className="tt-map" />
       <div className={`tt-vignette ${night ? 'night' : 'day'}`} />
 
@@ -244,9 +233,10 @@ export default function App() {
                     className={`tt-row ${off ? 'off' : ''}`}
                     onClick={() => setHidden((h) => { const n2 = new Set(h); n2.has(r.id) ? n2.delete(r.id) : n2.add(r.id); return n2; })}
                   >
+                    <span className="tt-row-swatch" style={{ background: r.color }} />
                     <span className="tt-row-code">{r.shortName}</span>
                     <span className="tt-row-name">{r.name.replace(/ — live GPS$/, '')}</span>
-                    <span className="tt-row-count">{counts[r.id] ?? 0}</span>
+                    <span className="tt-row-count"><NumberFlow value={counts[r.id] ?? 0} /></span>
                     {off ? <EyeOff size={15} strokeWidth={1.8} /> : <Eye size={15} strokeWidth={1.8} />}
                   </button>
                 );
@@ -267,27 +257,6 @@ export default function App() {
                 on={prefs.routes} onChange={(v) => setPrefs((p) => ({ ...p, routes: v }))} />
               <ToggleRow label="Stations" hint="Stop markers and names"
                 on={prefs.stations} onChange={(v) => setPrefs((p) => ({ ...p, stations: v }))} />
-            </div>
-          )}
-
-          {panel === 'display' && (
-            <div className="tt-list">
-              <div className="tt-seg" role="radiogroup" aria-label="Lighting">
-                {[
-                  { id: 'auto', label: 'Auto', icon: Clock3 },
-                  { id: 'day', label: 'Day', icon: Sun },
-                  { id: 'night', label: 'Night', icon: Moon },
-                ].map(({ id, label, icon: Icon }) => (
-                  <button key={id} role="radio" aria-checked={lightMode === id}
-                    className={lightMode === id ? 'active' : ''} onClick={() => changeLightMode(id)}>
-                    <Icon size={15} strokeWidth={1.8} />
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <p className="tt-note">
-                Auto follows the real sun over Kuala Lumpur — dawn and dusk happen when they happen.
-              </p>
             </div>
           )}
 
@@ -332,7 +301,7 @@ export default function App() {
           <dl>
             {selected.headsign && (<><dt>Destination</dt><dd>{selected.headsign.replace(/^From /, '')}</dd></>)}
             {selStop && (<><dt>Next station</dt><dd>{titleCase(selStop.name)}</dd></>)}
-            <dt><Gauge size={13} strokeWidth={1.8} /> Speed</dt><dd>{Math.round((selected.speed ?? 0) * 3.6)} km/h</dd>
+            <dt><Gauge size={13} strokeWidth={1.8} /> Speed</dt><dd><NumberFlow value={Math.round((selected.speed ?? 0) * 3.6)} suffix=" km/h" /></dd>
             <dt><DoorOpen size={13} strokeWidth={1.8} /> Doors</dt><dd>{selected.doors ? 'Open — boarding' : 'Closed'}</dd>
           </dl>
           <button className="tt-follow" onClick={() =>
@@ -390,7 +359,7 @@ function JourneyPanel({ stops, routes, journey, onPlan, onReset }) {
       {journey?.legs && (
         <div className="tt-journey">
           <div className="tt-journey-total">
-            <strong>{Math.max(1, Math.round(journey.totalSecs / 60))} min</strong>
+            <strong><NumberFlow value={Math.max(1, Math.round(journey.totalSecs / 60))} suffix=" min" /></strong>
             <span>{journey.legs.filter((l) => l.mode === 'ride').length} line{journey.legs.filter((l) => l.mode === 'ride').length > 1 ? 's' : ''} · {journey.legs.reduce((n, l) => n + l.stops.length - 1, 0)} stops</span>
           </div>
           <ol>
