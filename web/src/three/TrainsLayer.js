@@ -31,6 +31,7 @@ export class TrainsLayer {
 
   onAdd(map, gl) {
     this.map = map;
+    this.meshes.clear(); // re-added after a style swap: rebuild consists
     this.camera = new THREE.Camera();
     this.scene = new THREE.Scene();
     this.sun = new THREE.DirectionalLight(0xffffff, 2.2);

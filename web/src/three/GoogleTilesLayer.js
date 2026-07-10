@@ -39,9 +39,11 @@ export class GoogleTilesLayer {
     this.groundOffset = 55; // ≈ KL ellipsoid height; refined by raycast
     this.calibrated = false;
     this.lastCalibration = 0;
+    this.enabled = true;
   }
 
   onAdd(map, gl) {
+    this.tiles?.dispose(); // re-added after a style swap: start clean
     this.map = map;
     this.camera = new THREE.PerspectiveCamera(40, 1, 10, 300000);
     this.camera.matrixAutoUpdate = false;
@@ -111,6 +113,7 @@ export class GoogleTilesLayer {
   }
 
   renderInner(gl, matrix) {
+    if (!this.enabled) return;
     const ref = maplibregl.MercatorCoordinate.fromLngLat(this.map.getCenter(), 0);
     const s = ref.meterInMercatorCoordinateUnits();
     this.rebase();

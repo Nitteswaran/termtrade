@@ -18,8 +18,15 @@ export function sunPosition(date, lat = 3.139, lon = 101.6869) {
 }
 
 // 0 = deep night, 1 = full day, smooth twilight in between.
-// Overridable for demos/testing via ?light=day|night.
-const forced = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('light') : null;
+// Overridable via ?light=day|night or the Display panel.
+let forced = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('light') : null;
+
+export function setLightMode(mode) {
+  forced = mode === 'auto' ? null : mode;
+}
+export function getLightMode() {
+  return forced ?? 'auto';
+}
 
 export function daylightFactor(date) {
   if (forced === 'day') return 1;
