@@ -7,6 +7,7 @@ import maplibregl from 'maplibre-gl';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { buildTrain, updateTrainFX } from './trainModels.js';
 import { sunPosition, daylightFactor } from '../lib/solar.js';
+import { sampleShape } from '../lib/geo.js';
 
 const DEG = Math.PI / 180;
 const RAIL_ALTITUDE_M = 0.4;
@@ -50,15 +51,8 @@ export class TrainsLayer {
   makeTrain(tr) {
     const group = new THREE.Group();
     const train = buildTrain(this.kindFor(tr));
+    train.matrixAutoUpdate = false;
     group.add(train);
-    const color = new THREE.Color(this.routes[tr.routeId]?.color ?? '#1c3f94');
-    const pad = new THREE.Mesh(
-      new THREE.PlaneGeometry(train.userData.length * 1.25, 11),
-      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.32, depthWrite: false })
-    );
-    pad.rotation.x = -Math.PI / 2;
-    pad.position.y = 0.12;
-    group.add(pad);
     group.userData.train = train;
     group.matrixAutoUpdate = false;
     return group;
@@ -117,34 +111,53 @@ export class TrainsLayer {
         this.meshes.set(tr.id, g);
       }
       g.visible = true;
-      updateTrainFX(g.userData.train, tr.doorAnim ?? 0, this.nightEmissive);
+      const train = g.userData.train;
+      updateTrainFX(train, tr.doorAnim ?? 0, this.nightEmissive);
+      g.matrix.identity();
+      train.matrix.identity();
 
-      // Left-hand running: offset each simulated train to the left of its
-      // travel direction so opposing trains pass side by side instead of
-      // overlapping on the shared corridor. Scales with train size.
-      const brg = (tr.bearing || 0) * DEG;
-      let lon = tr.lon, lat = tr.lat;
-      if (!tr.id.startsWith('ktmb-')) {
-        const off = 2.1 * exaggerate; // metres to the left of travel
-        const east = -off * Math.cos(brg);
-        const north = off * Math.sin(brg);
-        lon += east / (111320 * Math.cos(lat * DEG));
-        lat += north / 110540;
+      // Articulated consist: every car is sampled at its own distance
+      // along the real track curve, so the train bends through corners.
+      // Cars are scaled by `exaggerate`, so their track offsets are too.
+      const shape = tr.dist != null ? this.world.shapes[tr.shapeId] : null;
+      const speedFactor = Math.min(1, (tr.speed ?? 0) / 14);
+      for (const { node, offset } of train.userData.cars) {
+        let lon, lat, brgDeg, brgAhead;
+        if (shape) {
+          const sC = sampleShape(shape, tr.dist + offset * exaggerate);
+          const sA = sampleShape(shape, tr.dist + offset * exaggerate + 10);
+          [lon, lat] = sC.pos;
+          brgDeg = sC.bearing;
+          brgAhead = sA.bearing;
+        } else {
+          // live GPS train (no shape): rigid consist along its bearing
+          brgDeg = tr.bearing || 0;
+          brgAhead = brgDeg;
+          const b = brgDeg * DEG;
+          const d = offset * exaggerate;
+          lon = tr.lon + (d * Math.sin(b)) / (111320 * Math.cos(tr.lat * DEG));
+          lat = tr.lat + (d * Math.cos(b)) / 110540;
+        }
+
+        const brg = brgDeg * DEG;
+        if (shape) {
+          // left-hand running: opposing trains pass side by side
+          const off = 2.1 * exaggerate;
+          lon += (-off * Math.cos(brg)) / (111320 * Math.cos(lat * DEG));
+          lat += (off * Math.sin(brg)) / 110540;
+        }
+
+        // banking: each car rolls into its own curvature
+        const roll = THREE.MathUtils.clamp(angleDelta(brgAhead, brgDeg) * 0.025, -0.1, 0.1) * speedFactor;
+
+        const merc = maplibregl.MercatorCoordinate.fromLngLat([lon, lat], RAIL_ALTITUDE_M);
+        node.matrix
+          .makeTranslation(merc.x - ref.x, merc.y - ref.y, merc.z)
+          .scale(new THREE.Vector3(scaleRef, -scaleRef, scaleRef))
+          .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))
+          .multiply(new THREE.Matrix4().makeRotationY(Math.PI / 2 - brg))
+          .multiply(new THREE.Matrix4().makeRotationX(roll));
       }
-
-      // banking: roll into curves from the turn rate
-      const turn = angleDelta(tr.bearing, g.userData.lastBearing ?? tr.bearing) / Math.max(dt, 1e-3);
-      g.userData.lastBearing = tr.bearing;
-      g.userData.roll = (g.userData.roll ?? 0) * 0.92 + THREE.MathUtils.clamp(turn * 0.004, -0.12, 0.12) * 0.08;
-
-      const merc = maplibregl.MercatorCoordinate.fromLngLat([lon, lat], RAIL_ALTITUDE_M);
-      const theta = Math.PI / 2 - brg;
-      g.matrix
-        .makeTranslation(merc.x - ref.x, merc.y - ref.y, merc.z)
-        .scale(new THREE.Vector3(scaleRef, -scaleRef, scaleRef))
-        .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))
-        .multiply(new THREE.Matrix4().makeRotationY(theta))
-        .multiply(new THREE.Matrix4().makeRotationX(g.userData.roll));
     }
 
     for (const [id, g] of this.meshes) {

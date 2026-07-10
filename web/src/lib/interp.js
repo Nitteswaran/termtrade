@@ -72,6 +72,7 @@ export class TrainWorld {
       tr.doorAnim += ((tr.doors ? 1 : 0) - tr.doorAnim) * Math.min(1, dt * 3);
       const shape = this.shapes[tr.shapeId];
       if (!shape) continue;
+      tr.dist = st; // consumed by the layer for per-car articulation
       const { pos, bearing } = sampleShape(shape, st);
       tr.lon = pos[0];
       tr.lat = pos[1];

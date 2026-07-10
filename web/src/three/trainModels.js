@@ -106,6 +106,7 @@ function getParts(kind) {
     }),
     dark: new THREE.MeshStandardMaterial({ color: 0x171a1f, metalness: 0.25, roughness: 0.75 }),
     lamp: new THREE.MeshStandardMaterial({ color: 0xfff7df, emissive: 0xffedb8, emissiveIntensity: 2.4 }),
+    pad: new THREE.MeshBasicMaterial({ color: L.accent, transparent: true, opacity: 0.3, depthWrite: false }),
   };
 
   const sideGlassLen = L.carLen * 0.8;
@@ -126,6 +127,7 @@ function getParts(kind) {
     beam: new THREE.BoxGeometry(L.carLen * 0.82, railY, 0.85),
     gangway: new THREE.CylinderGeometry(bodyH * 0.36, bodyH * 0.36, 1.15, 12),
     lamp: new THREE.SphereGeometry(0.15, 10, 8),
+    pad: new THREE.PlaneGeometry(L.carLen + 1.6, 11),
   };
   geos.wheel.rotateX(Math.PI / 2); // axle across the track
   geos.gangway.rotateZ(Math.PI / 2);
@@ -139,16 +141,18 @@ export function buildTrain(kind) {
   const { L, mats, geos, railY, bodyH, noseLen } = getParts(kind);
   const group = new THREE.Group();
   const doors = [];
+  const cars = [];
   const gap = 0.8;
   const total = L.cars * L.carLen + (L.cars - 1) * gap;
-  let x0 = -total / 2;
   const wallZ = L.width / 2 + 0.04;
 
   for (let c = 0; c < L.cars; c++) {
-    const cx = x0 + L.carLen / 2;
+    // car 0 is the FRONT of the consist; each car is centred on its own
+    // origin and placed on the track individually so the train bends
+    const offset = total / 2 - L.carLen / 2 - c * (L.carLen + gap);
     const isHead = c === 0, isTail = c === L.cars - 1;
     const car = new THREE.Group();
-    car.position.x = cx;
+    car.matrixAutoUpdate = false;
 
     const bodyLen = L.carLen - 0.5 - (isHead ? noseLen : 0) - (isTail ? noseLen : 0);
     const bodyShift = (isHead ? -noseLen / 2 : 0) + (isTail ? noseLen / 2 : 0);
@@ -241,16 +245,23 @@ export function buildTrain(kind) {
     }
 
     if (c < L.cars - 1) {
+      // gangway bridging to the car behind
       const gw = new THREE.Mesh(geos.gangway, mats.dark);
-      gw.position.set(L.carLen / 2 + gap / 2, railY + bodyH * 0.5, 0);
+      gw.position.set(-(L.carLen / 2 + gap / 2), railY + bodyH * 0.5, 0);
       car.add(gw);
     }
 
+    // line-colored glow pad under each car (reads from top view)
+    const pad = new THREE.Mesh(geos.pad, mats.pad);
+    pad.rotation.x = -Math.PI / 2;
+    pad.position.y = 0.1;
+    car.add(pad);
+
     group.add(car);
-    x0 += L.carLen + gap;
+    cars.push({ node: car, offset });
   }
 
-  group.userData = { doors, kind, length: total, glassMat: mats.glass };
+  group.userData = { doors, cars, kind, length: total, glassMat: mats.glass };
   return group;
 }
 
