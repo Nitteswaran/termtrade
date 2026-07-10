@@ -48,6 +48,22 @@ export function activeTrains(gtfs, nowMs = Date.now(), secsOverride = null) {
   return trains;
 }
 
+// Seconds-of-day when service next begins (today or tomorrow), for the
+// "network closed — first train at …" state.
+export function nextServiceStart(gtfs, nowMs = Date.now()) {
+  const { secs, dow } = klClock(nowMs);
+  for (const addDay of [0, 1]) {
+    const service = serviceIdFor((dow + addDay) % 7);
+    let min = Infinity;
+    for (const [tripId, bands] of Object.entries(gtfs.frequencies)) {
+      if (gtfs.profiles[tripId]?.serviceId !== service) continue;
+      for (const b of bands) if (addDay === 1 || b.start > secs) min = Math.min(min, b.start);
+    }
+    if (min < Infinity) return { secs: min, tomorrow: addDay === 1 };
+  }
+  return null;
+}
+
 function positionAt(profile, elapsed) {
   const pts = profile.points;
   if (!pts.length) return null;

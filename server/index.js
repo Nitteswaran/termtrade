@@ -4,14 +4,23 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { loadGTFS } from './lib/gtfs.js';
-import { activeTrains, klClock } from './lib/sim.js';
+import { activeTrains, klClock, nextServiceStart } from './lib/sim.js';
 import { KtmbFeed } from './lib/ktmb.js';
 import { loadEnv } from './lib/env.js';
 import { buildGraph, findRoute } from './lib/router.js';
+import { refreshGTFS } from './lib/fetchGtfs.js';
 
 loadEnv();
 const PORT = process.env.PORT || 8787;
+// REPLAY=1 (dev only): replay the timetable outside service hours
+const REPLAY = process.env.REPLAY === '1';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Pull fresh GTFS from api.data.gov.my; falls back to vendored data.
+console.log('[termtrade] refreshing GTFS from data.gov.my…');
+const refreshed = await refreshGTFS().catch((e) => ({ error: String(e) }));
+console.log('[termtrade] gtfs refresh:', JSON.stringify(refreshed));
+setInterval(() => refreshGTFS().then((r) => console.log('[termtrade] daily gtfs refresh:', JSON.stringify(r))), 24 * 3600 * 1000).unref();
 
 console.log('[termtrade] loading GTFS…');
 const gtfs = loadGTFS();
@@ -61,19 +70,25 @@ function snapshot() {
   const now = Date.now();
   const { secs } = klClock(now);
   let trains = activeTrains(gtfs, now);
-  let demo = false;
+  let replay = false;
+  let closed = null;
   if (trains.length === 0) {
-    // Outside service hours: replay the timetable on a virtual peak-hour
-    // clock so the city never goes dark. Flagged so the UI can say so.
-    const demoSecs = 8.5 * 3600 + (secs % (14 * 3600));
-    trains = activeTrains(gtfs, now, demoSecs);
-    demo = true;
+    // Real world: network is closed. Report when service resumes.
+    // (REPLAY=1 dev flag replays the timetable instead.)
+    if (REPLAY) {
+      const demoSecs = 8.5 * 3600 + (secs % (14 * 3600));
+      trains = activeTrains(gtfs, now, demoSecs);
+      replay = true;
+    } else {
+      closed = nextServiceStart(gtfs, now);
+    }
   }
   return JSON.stringify({
     type: 'snapshot',
     t: now,
     kl: secs,
-    demo,
+    replay,
+    closed,
     trains: trains.map((tr) => ({
       id: tr.id,
       r: tr.routeId,

@@ -8,6 +8,7 @@ import { TrainsLayer } from './three/TrainsLayer.js';
 
 const LINE_ORDER = ['KJ', 'AG', 'PH', 'KGL', 'PYL', 'MR', 'BRT', 'SA'];
 const titleCase = (s) => s.toLowerCase().replace(/(^|\s|\()\S/g, (c) => c.toUpperCase());
+const fmtSecs = (s) => `${String(Math.floor(s / 3600) % 24).padStart(2, '0')}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}`;
 
 export default function App() {
   const mapEl = useRef(null);
@@ -16,7 +17,8 @@ export default function App() {
   const [routes, setRoutes] = useState(null);
   const [stops, setStops] = useState(null);
   const [status, setStatus] = useState('connecting');
-  const [demo, setDemo] = useState(false);
+  const [replay, setReplay] = useState(false);
+  const [closed, setClosed] = useState(null);
   const [counts, setCounts] = useState({});
   const [hidden, setHidden] = useState(new Set());
   const [selected, setSelected] = useState(null);
@@ -61,7 +63,8 @@ export default function App() {
           onStatus: setStatus,
           onSnapshot: (snap) => {
             world.ingest(snap);
-            setDemo(!!snap.demo);
+            setReplay(!!snap.replay);
+            setClosed(snap.closed ?? null);
             const byRoute = {};
             for (const t of snap.trains) byRoute[t.r] = (byRoute[t.r] || 0) + 1;
             byRoute.KTMB = (snap.ktmb || []).length;
@@ -145,7 +148,12 @@ export default function App() {
           <em>Malaysia Transit · Live 3D</em>
         </div>
         <div className="tt-top-right">
-          {demo && <span className="tt-badge demo">timetable replay · after hours</span>}
+          {closed && (
+            <span className="tt-badge demo">
+              network closed · first train {fmtSecs(closed.secs)}{closed.tomorrow ? '' : ' today'}
+            </span>
+          )}
+          {replay && <span className="tt-badge demo">timetable replay (dev)</span>}
           <span className={`tt-badge status ${status === "live" ? "live" : status}`}><i />{status === 'live' ? 'LIVE' : status.toUpperCase()}</span>
           <span className="tt-clock">{clock}<small>MYT · {night ? 'night' : 'day'}</small></span>
         </div>

@@ -12,6 +12,10 @@ const DEG = Math.PI / 180;
 const RAIL_ALTITUDE_M = 0.4;
 const MAX_VISIBLE = 140;
 
+function angleDelta(a, b) {
+  return ((a - b + 540) % 360) - 180;
+}
+
 export class TrainsLayer {
   constructor(world, routes) {
     this.id = 'termtrade-trains';
@@ -83,7 +87,7 @@ export class TrainsLayer {
     const trains = this.world.tick(dt);
     const seen = new Set();
     const zoom = this.map.getZoom();
-    const exaggerate = Math.min(4, Math.max(1.15, 1.15 + (16.5 - zoom) * 0.5));
+    const exaggerate = Math.min(9, Math.max(3.4, 3.4 + (16.5 - zoom) * 0.9));
     const ref = maplibregl.MercatorCoordinate.fromLngLat(this.map.getCenter(), 0);
     const scaleRef = ref.meterInMercatorCoordinateUnits() * exaggerate;
     this.trainScreenPos.clear();
@@ -114,13 +118,33 @@ export class TrainsLayer {
       }
       g.visible = true;
       updateTrainFX(g.userData.train, tr.doorAnim ?? 0, this.nightEmissive);
-      const merc = maplibregl.MercatorCoordinate.fromLngLat([tr.lon, tr.lat], RAIL_ALTITUDE_M);
-      const theta = Math.PI / 2 - (tr.bearing || 0) * DEG;
+
+      // Left-hand running: offset each simulated train to the left of its
+      // travel direction so opposing trains pass side by side instead of
+      // overlapping on the shared corridor. Scales with train size.
+      const brg = (tr.bearing || 0) * DEG;
+      let lon = tr.lon, lat = tr.lat;
+      if (!tr.id.startsWith('ktmb-')) {
+        const off = 2.1 * exaggerate; // metres to the left of travel
+        const east = -off * Math.cos(brg);
+        const north = off * Math.sin(brg);
+        lon += east / (111320 * Math.cos(lat * DEG));
+        lat += north / 110540;
+      }
+
+      // banking: roll into curves from the turn rate
+      const turn = angleDelta(tr.bearing, g.userData.lastBearing ?? tr.bearing) / Math.max(dt, 1e-3);
+      g.userData.lastBearing = tr.bearing;
+      g.userData.roll = (g.userData.roll ?? 0) * 0.92 + THREE.MathUtils.clamp(turn * 0.004, -0.12, 0.12) * 0.08;
+
+      const merc = maplibregl.MercatorCoordinate.fromLngLat([lon, lat], RAIL_ALTITUDE_M);
+      const theta = Math.PI / 2 - brg;
       g.matrix
         .makeTranslation(merc.x - ref.x, merc.y - ref.y, merc.z)
         .scale(new THREE.Vector3(scaleRef, -scaleRef, scaleRef))
         .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))
-        .multiply(new THREE.Matrix4().makeRotationY(theta));
+        .multiply(new THREE.Matrix4().makeRotationY(theta))
+        .multiply(new THREE.Matrix4().makeRotationX(g.userData.roll));
     }
 
     for (const [id, g] of this.meshes) {

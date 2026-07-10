@@ -27,9 +27,12 @@
   to the track bearing (with smoothed cornering).
 - **Real day/night** — sun position computed for Kuala Lumpur (NOAA approximation) drives scene
   lighting, window glow and the map's night palette. Force it with `?light=day` / `?light=night`.
-- **After hours** — when the network shuts (~23:30–06:00 MYT) the server replays the timetable
-  on a virtual peak-hour clock and the UI shows a *timetable replay* badge, so the city never
-  goes dark.
+- **Honest service hours** — outside real operating hours the map shows zero trains and a
+  "network closed · first train HH:MM" badge, exactly like the real network. (`REPLAY=1` env
+  replays the timetable for development.)
+- **Self-refreshing GTFS** — on boot (and daily) the server pulls fresh timetables from
+  `api.data.gov.my/gtfs-static/ktmb` and `…/gtfs-static/prasarana?category=rapid-rail-kl`,
+  validates them, and falls back to the vendored copies on any failure.
 
 ## API keys (optional)
 
@@ -42,7 +45,7 @@ cp .env.example .env
 | key | where to get it | what it unlocks |
 |---|---|---|
 | `MAPTILER_KEY` | https://cloud.maptiler.com/account/keys (free tier) | Much more detailed basemap (MapTiler Streets v2, day + dark variants) instead of the default OpenFreeMap style |
-| `GOOGLE_MAPS_API_KEY` | https://console.cloud.google.com/google/maps-apis — enable **Map Tiles API** (billing required) | Google **Photorealistic 3D Tiles**: real photogrammetry buildings rendered under the trains via deck.gl |
+| `GOOGLE_MAPS_API_KEY` | https://console.cloud.google.com/google/maps-apis — enable **Map Tiles API** (billing required) | Google **Photorealistic 3D Tiles**: the real photogrammetry city (buildings, terrain, trees) rendered with three.js/3d-tiles-renderer under the route lines and trains |
 
 No keys are required — without them the app uses the free OpenFreeMap basemap.
 
